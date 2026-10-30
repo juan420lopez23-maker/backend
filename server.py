@@ -11,8 +11,6 @@ logging.basicConfig(level=logging.INFO)
 
 TOKEN = os.environ.get("BOT_TOKEN", "8371195355:AAFa7xJjZJeO9JxlbgEE0eHXB3vPa8fHMo0")
 CANAL_ADMIN_ID = int(os.environ.get("CANAL_ADMIN_ID", "-1003904819480"))
-
-# URL de tu servidor en Render (sin la '/' al final)
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://backend-oa88.onrender.com").rstrip('/')
 
 ARCH_ESTADOS = "estados_usuarios.json"
@@ -22,7 +20,7 @@ CORS(app)
 
 bot = telebot.TeleBot(TOKEN)
 
-# --- SISTEMA DE PERSISTENCIA ---
+# --- SISTEMA DE LECTURA/ESCRITURA DE ESTADOS ---
 def leer_estados():
     if not os.path.exists(ARCH_ESTADOS):
         return {}
@@ -68,7 +66,7 @@ def home():
     return app.send_static_file('index.html')
 
 
-# --- ENDPOINT DONDE TELEGRAM NOTIFICA LOS CLICS EN BOTONES ---
+# --- RECEPCIÓN DE CLICS DESDE TELEGRAM ---
 @app.route('/webhook', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -141,60 +139,52 @@ def update_status():
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('admin:'))
 def procesar_respuesta_admin(call):
+    print(f"📥 BOTÓN PRESIONADO: {call.data}")
     try:
-        # Responder a Telegram inmediatamente
-        try:
-            bot.answer_callback_query(call.id, "Procesando respuesta...")
-        except Exception:
-            pass
+        # 1. Quitar la animación de carga del botón en Telegram
+        bot.answer_callback_query(call.id, text="Acción registrada")
 
         partes = call.data.split(':')
         opcion = partes[1].strip()
         target_user_id = partes[2].strip()
         admin_name = call.from_user.first_name or "Admin"
 
-        # 1. ACTUALIZAR EL ESTADO
+        # 2. GUARDAR EL ESTADO EN DISCO (CRÍTICO)
         guardar_estado(target_user_id, opcion)
-        print(f"✅ RECIBIDO CLIC EN WEBHOOK: Usuario {target_user_id} -> {opcion}")
 
-        # 2. Modificar el mensaje en Telegram
+        # 3. ELIMINAR LOS BOTONES Y EDITAR MENSAJE
         try:
-            bot.edit_message_reply_markup(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=None
-            )
             texto_original = call.message.text or ""
-            texto_actualizado = (
+            texto_nuevo = (
                 f"{texto_original}\n\n"
                 f"------------------------------\n"
-                f"🔵 ESTADO: ACCIÓN SOLICITADA ({opcion})\n"
+                f"🔵 ESTADO SOLICITADO: ({opcion})\n"
                 f"✍️ Atendido por: {admin_name}"
             )
+            # Se quitan los botones enviando reply_markup=None
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
-                text=texto_actualizado
+                text=texto_nuevo,
+                reply_markup=None
             )
+            print("✅ Botones removidos con éxito de Telegram")
         except Exception as e_edit:
-            print(f"⚠️ No se pudo editar el mensaje en Telegram: {e_edit}")
+            print(f"⚠️ Error al modificar el mensaje en Telegram (Revisa permisos del Bot): {e_edit}")
 
     except Exception as e:
-        print("❌ Error en callback handler:")
+        print("❌ Error procesando callback:")
         traceback.print_exc()
 
 
-# Registrar el Webhook en Telegram al arrancar la aplicación
-def configurar_webhook():
-    try:
-        url_webhook = f"{RENDER_URL}/webhook"
-        bot.remove_webhook()
-        bot.set_webhook(url=url_webhook)
-        print(f"🔗 WEBHOOK ACTIVADO EN: {url_webhook}")
-    except Exception as e:
-        print(f"❌ Error activando Webhook: {e}")
+# Intentar activar webhook al arrancar
+try:
+    bot.remove_webhook()
+    bot.set_webhook(url=f"{RENDER_URL}/webhook")
+    print(f"🔗 Webhook configurado automáticamente en: {RENDER_URL}/webhook")
+except Exception as e:
+    print(f"⚠️ Error registrando Webhook automático: {e}")
 
-configurar_webhook()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
